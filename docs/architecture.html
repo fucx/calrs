@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b4d3d34f.js";
+            window.path_to_searchindex_js = "searchindex-79eda86f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-e4a0ca82.js"></script>
@@ -227,11 +227,11 @@
     ├── db.rs               SQLite connection + migrations
     ├── models.rs           Domain types
     ├── auth.rs             Authentication (local + OIDC)
-    ├── email.rs            SMTP email with .ics invites + HTML templates
+    ├── email/              SMTP email with .ics invites + HTML templates
     ├── rrule.rs            RRULE expansion (DAILY/WEEKLY/MONTHLY)
     ├── utils.rs            Shared utilities (iCal splitting/parsing)
     ├── caldav/mod.rs       CalDAV client (RFC 4791) + write-back
-    ├── web/mod.rs          Axum web server + handlers
+    ├── web/                Axum web server, one file per area
     └── commands/           CLI subcommands
         ├── source.rs
         ├── sync.rs

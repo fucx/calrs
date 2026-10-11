@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b4d3d34f.js";
+            window.path_to_searchindex_js = "searchindex-79eda86f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-e4a0ca82.js"></script>
@@ -213,7 +213,7 @@
 <li><strong>Slot interval</strong> — how often slots start (optional; leave blank to match duration — see <a href="#slot-interval">Slot interval</a> below)</li>
 <li><strong>Buffer before/after</strong> — padding between meetings (prevents back-to-back bookings)</li>
 <li><strong>Minimum notice</strong> — how far in advance guests must book (in minutes)</li>
-<li><strong>Requires confirmation</strong> — if checked, bookings start as “pending” and you approve from the dashboard</li>
+<li><strong>Requires confirmation</strong> — if checked, bookings start as “pending” and you approve from the dashboard or the email. Two more settings appear: <strong>Pending requests block the time slot</strong> (on by default) and <strong>Request expiry</strong> (how long a request may wait before it is declined automatically). See <a href="booking-flow.html#confirmation-mode">Confirmation mode</a>.</li>
 <li><strong>Additional guests</strong> — allow guests to invite additional attendees (0, 1, 3, 5, or 10 max)</li>
 <li><strong>Location</strong> — video link, phone number, in-person address, or custom text</li>
 <li><strong>Availability schedule</strong> — which days and hours you’re available</li>
@@ -333,14 +333,17 @@ calrs event-type slots intro
 calrs event-type slots intro --days 14
 </code></pre>
 <h2 id="location"><a class="header" href="#location">Location</a></h2>
-<p>Event types support four location types:</p>
+<p>Event types support these location types:</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Type</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><code>link</code></td><td>Video meeting URL (Zoom, Meet, etc.)</td></tr>
+<tr><td><code>link</code></td><td>Static video meeting URL (Zoom, a standing Meet room, etc.)</td></tr>
+<tr><td><code>jitsi_auto</code></td><td>Fresh Jitsi room URL per confirmed booking (pattern configured in Admin)</td></tr>
+<tr><td><code>webhook_auto</code></td><td>calrs POSTs the booking to an admin-configured URL and uses the returned <code>{ "url": "..." }</code></td></tr>
+<tr><td><code>google_meet</code></td><td>Fresh Google Meet conference owned by the host, attached to their Google Calendar event. Requires Google Calendar OAuth2 with write-back. See <a href="./google-calendar.html#google-meet-auto-links">Google Calendar</a>.</td></tr>
 <tr><td><code>phone</code></td><td>Phone number</td></tr>
 <tr><td><code>in_person</code></td><td>Physical address</td></tr>
 <tr><td><code>custom</code></td><td>Free-text description</td></tr>
@@ -348,6 +351,8 @@ calrs event-type slots intro --days 14
 </table>
 </div>
 <p>The location is displayed on the public booking page, in confirmation emails, and in <code>.ics</code> calendar invites.</p>
+<p>Auto providers (<code>jitsi_auto</code>, <code>webhook_auto</code>, <code>google_meet</code>) mint the URL only when the booking is <strong>confirmed</strong>. Pending bookings do not get a link (so a declined request never creates a Meet or hits the webhook). The same Meet URL is kept on reschedule.</p>
+<p>Saving an event type as <code>google_meet</code> is rejected unless every scheduling-relevant host already has Google Calendar connected with a write-back calendar selected (you, for a personal event type; every eligible team member for a team event type).</p>
 <h2 id="enablingdisabling"><a class="header" href="#enablingdisabling">Enabling/disabling</a></h2>
 <p>Event types can be toggled on/off from the dashboard without deleting them. Disabled event types don’t show up on your public profile and return 404 on their booking page.</p>
 <h2 id="visibility"><a class="header" href="#visibility">Visibility</a></h2>

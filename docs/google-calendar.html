@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b4d3d34f.js";
+            window.path_to_searchindex_js = "searchindex-79eda86f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-e4a0ca82.js"></script>
@@ -191,10 +191,11 @@
 <h2 id="2-enable-the-required-apis"><a class="header" href="#2-enable-the-required-apis">2. Enable the required APIs</a></h2>
 <p>In <strong>APIs &amp; Services → Library</strong>, enable:</p>
 <ul>
-<li><strong>Google Calendar API</strong>: used for CalDAV access to the user’s calendars (event read and write-back).</li>
+<li><strong>CalDAV API</strong>: used for CalDAV access to the user’s calendars (reading busy times and writing bookings back). It is a separate entry in the Library from the Calendar API; search for “CalDAV API”.</li>
+<li><strong>Google Calendar API</strong>: used to attach Google Meet links to bookings (see <a href="#google-meet-auto-links">Google Meet auto-links</a>). Enable it even if you do not use Meet today, so the option works the day an event type switches to it.</li>
 <li><strong>OIDC userinfo</strong>: Google exposes this automatically when you request the <code>openid email</code> scopes; there is no separate “API” to toggle, but the OAuth consent screen must allow those scopes (see step 5).</li>
 </ul>
-<p>Without the Calendar API enabled, every CalDAV request will fail with a 403 even though the OAuth2 handshake itself succeeds.</p>
+<p>Without the CalDAV API enabled, every CalDAV request will fail with a 403 even though the OAuth2 handshake itself succeeds; enabling only the Google Calendar API is not enough. Without the Google Calendar API, bookings still sync and write back, but Google Meet links cannot be generated.</p>
 <hr>
 <h2 id="3-create-the-oauth2-client"><a class="header" href="#3-create-the-oauth2-client">3. Create the OAuth2 client</a></h2>
 <p>In <strong>APIs &amp; Services → Credentials</strong>, click <strong>Create credentials → OAuth client ID</strong>.</p>
@@ -234,6 +235,7 @@
 </div>
 <p>calrs also passes <code>access_type=offline</code> and <code>prompt=consent</code> so that Google issues a long-lived refresh token. The refresh token is stored encrypted and used to mint new access tokens as needed (existing tokens are rotated automatically).</p>
 <p>On the OAuth consent screen configuration (<strong>APIs &amp; Services → OAuth consent screen</strong>), add the Calendar scope explicitly. The <code>openid</code> and <code>email</code> scopes are listed under the “non-sensitive” defaults and don’t need additional review.</p>
+<p>The same Calendar scope is enough to attach a Google Meet conference to a write-back event. No extra Meet scope, and users who already connected Google Calendar do not need to reconnect.</p>
 <hr>
 <h2 id="6-test-users-vs-publishing-the-consent-screen"><a class="header" href="#6-test-users-vs-publishing-the-consent-screen">6. Test users vs. publishing the consent screen</a></h2>
 <p>While the OAuth consent screen is in <strong>Testing</strong> status, only accounts explicitly listed under <strong>Test users</strong> can complete the OAuth flow. Everyone else gets <code>Error 403: access_denied</code> at the Google consent page.</p>
@@ -243,6 +245,39 @@
 <li><strong>Publish the app</strong> (button on the OAuth consent screen page) for any larger or longer-running deployment. Because the Calendar scope is marked <strong>sensitive/restricted</strong> by Google, publishing triggers Google’s app verification process. They will ask for a homepage, privacy policy, branding assets, and (for restricted scopes) a security assessment. This can take weeks. Until verification completes, users see an “unverified app” warning but can still proceed via <em>Advanced → Go to {app} (unsafe)</em>.</li>
 </ul>
 <p>For a self-hosted instance used by you and a handful of people, the Testing mode + Test users approach is usually fine; just remember the 7-day refresh token expiry.</p>
+<h2 id="google-meet-auto-links"><a class="header" href="#google-meet-auto-links">Google Meet auto-links</a></h2>
+<p>When an event type’s location is <strong>Google Meet (auto-generated link)</strong>, confirmed bookings attempt to attach a unique Meet conference owned by the host, as long as that host still has Google Calendar connected with write-back:</p>
+<ol>
+<li>calrs writes the booking to the host’s Google write-back calendar (same CalDAV PUT as any other booking).</li>
+<li>It then calls Google Calendar API <code>events.patch</code> with <code>conferenceData.createRequest</code> (<code>hangoutsMeet</code>) using the host’s existing OAuth token.</li>
+<li>The Meet URL is stored on <code>bookings.meeting_url</code> and included in confirmation emails, the guest ICS, and CalDAV copies on any other calendars.</li>
+</ol>
+<p>No extra OAuth scope or admin field is required beyond the setup above, as long as the Google Calendar API was enabled in step 2. Users who already connected Google Calendar do not reconnect.</p>
+<h3 id="who-owns-the-meet"><a class="header" href="#who-owns-the-meet">Who owns the Meet</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Booking</th><th>Meet owner</th></tr>
+</thead>
+<tbody>
+<tr><td>Personal event type</td><td>The event type owner</td></tr>
+<tr><td>Team round-robin</td><td>The assigned member</td></tr>
+<tr><td>Team collective</td><td>The first eligible member by name when the booking was made (same person as the calendar ORGANIZER, kept even if the team changes later)</td></tr>
+<tr><td>Dynamic group (<code>/u/alice+bob/...</code>)</td><td>The event type owner (first username). Checked on the slots page so the guest is not asked to fill the form first. Other participants do not need Google connected.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The conference is created with that person’s token on their write-back calendar, so they see the native “Join with Google Meet” button in Google Calendar.</p>
+<h3 id="save-time-gate"><a class="header" href="#save-time-gate">Save-time gate</a></h3>
+<p>You cannot save an event type as Google Meet unless every scheduling-relevant host already has Google Calendar connected <strong>and</strong> has picked a write-back calendar:</p>
+<ul>
+<li>Personal: you</li>
+<li>Team: every eligible member (enabled, non-zero weight)</li>
+</ul>
+<p>The form lists anyone still missing. If someone later disconnects Google, the booking still confirms; confirmation and email show a “Google Meet” label if minting failed (the Meet URL is omitted and a warning is logged, same as a failed meeting webhook).</p>
+<h3 id="reschedule-and-cancel"><a class="header" href="#reschedule-and-cancel">Reschedule and cancel</a></h3>
+<p>Reschedule keeps the same Meet URL and patches only the event times via Calendar API (a second CalDAV PUT would strip the conference). Cancel still deletes <code>{uid}.ics</code> over CalDAV, which removes the Google event and its Meet.</p>
+<p>That time patch is the host’s only copy of the booking, so it is retried three times a second apart. If it still fails, the host is emailed: the booking, the guest’s invite and the reminders hold the new time while their Google Calendar holds the old one, and they need to move the event by hand. Move it rather than recreating it, or the Meet link the guest already has stops admitting anyone.</p>
 
                     </main>
 

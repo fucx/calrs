@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b4d3d34f.js";
+            window.path_to_searchindex_js = "searchindex-79eda86f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-e4a0ca82.js"></script>
@@ -195,6 +195,34 @@
 </ol>
 <p><img src="images/slots.png" alt="Available time slots"></p>
 <p><img src="images/booking-form.png" alt="Booking form"></p>
+<h2 id="timezones-and-existing-installations"><a class="header" href="#timezones-and-existing-installations">Timezones and existing installations</a></h2>
+<p>New bookings store UTC timestamps. Availability rules remain in the event type’s
+IANA timezone, and guests see times in their selected timezone. The dashboard
+uses the host’s profile timezone. Changing those settings does not move a new
+booking’s actual start or end time; the server’s timezone does not determine it.
+The CLI interprets <code>booking create --date ... --time ...</code> in <code>--timezone</code> (UTC by
+default), then checks availability in the event timezone.</p>
+<p>Upgrading adds a storage-version field automatically. Existing bookings retain
+their original timestamps and legacy interpretation: there is no bulk conversion,
+manual migration, notification, or calendar rewrite. Historical timezone mistakes
+are not repaired automatically. Rescheduling an existing booking stores the
+newly selected time in UTC; cancelling it leaves its timestamps unchanged.</p>
+<p>Back up the database before upgrading as usual. Older binaries do not understand
+the new storage format; reverting to one after creating UTC bookings requires
+restoring the pre-upgrade backup, which loses bookings created since that backup.</p>
+<p>Ambiguous or nonexistent local start times during daylight-saving transitions
+are rejected instead of silently choosing an instant. Calendar attachments for
+new bookings carry both exact UTC endpoints, including across midnight and clock
+changes. Meeting-provider webhooks likewise receive explicit UTC timestamps for
+new bookings (legacy bookings retain the previous format).</p>
+<h3 id="clock-changes"><a class="header" href="#clock-changes">Clock changes</a></h3>
+<p>Durations and minimum notice use elapsed time. The slot picker omits nonexistent
+or ambiguous local starts, since booking forms do not carry a DST-fold marker.
+Conflict checks retain the existing wall-clock availability engine: a UTC booking
+that crosses a backward clock change blocks a conservative envelope covering both
+occurrences of the repeated hour. This can hide otherwise free slots around the
+transition, but prevents a reversed local interval from allowing double-booking.
+Host email text and calendar attachments use the exact UTC endpoints for new rows.</p>
 <h2 id="booking-statuses"><a class="header" href="#booking-statuses">Booking statuses</a></h2>
 <div class="table-wrapper">
 <table>
@@ -203,9 +231,9 @@
 </thead>
 <tbody>
 <tr><td><code>confirmed</code></td><td>Booking is active. Slot is blocked. Emails sent.</td></tr>
-<tr><td><code>pending</code></td><td>Awaiting host approval (when <code>requires_confirmation</code> is on).</td></tr>
+<tr><td><code>pending</code></td><td>Awaiting host approval (when <code>requires_confirmation</code> is on). Blocks the slot unless the event type turns that off.</td></tr>
 <tr><td><code>cancelled</code></td><td>Cancelled by host or guest. Slot is freed.</td></tr>
-<tr><td><code>declined</code></td><td>Declined by host (pending booking rejected).</td></tr>
+<tr><td><code>declined</code></td><td>Declined by host, or expired before the host answered.</td></tr>
 </tbody>
 </table>
 </div>
@@ -221,9 +249,19 @@
 <li><strong>From the dashboard</strong> — go to <strong>Pending approval</strong> section and click Confirm or Decline</li>
 </ul>
 </li>
-<li>On confirm: status becomes <code>confirmed</code>, guest receives confirmation email with <code>.ics</code>, booking is pushed to CalDAV</li>
+<li>On confirm: status becomes <code>confirmed</code>, guest receives confirmation email with <code>.ics</code>, booking is pushed to CalDAV. Auto meeting links (Jitsi, webhook, Google Meet) are generated at this moment, not while the booking is pending.</li>
 <li>On decline: status becomes <code>declined</code>, guest receives a decline notification with optional reason</li>
 </ol>
+<p>Before confirming, both approval paths check that the host is still free at that time (the assigned member for round-robin, every member for collective): a calendar event or a confirmed booking that appeared in the meantime makes the approval fail with an explanation instead of double-booking the host. Other pending requests do not count here, so when two requests overlap the host can approve either one; the other is then refused.</p>
+<h3 id="pending-requests-hold-the-slot"><a class="header" href="#pending-requests-hold-the-slot">Pending requests hold the slot</a></h3>
+<p>By default a pending request blocks its host’s time exactly like a confirmed booking: the slot disappears from the booking page, and overlapping slots on the host’s other event types disappear too, so a second guest is never offered a time that is already requested. Uncheck <strong>Pending requests block the time slot</strong> in the event type form to let other guests request the same time (the first approved wins; the database still refuses two bookings on the exact same slot).</p>
+<h3 id="request-expiry"><a class="header" href="#request-expiry">Request expiry</a></h3>
+<p><strong>Request expiry</strong> (never, 4, 24, 48 or 72 hours; 24 for new event types, never for event types that existed before the setting) bounds how long a request may wait. The deadline is set when the request is made. It never runs later than the latest moment another guest could still book the slot (start minus the minimum notice), since expiring after that point frees nothing. A request made inside that window (the guest booked right at the minimum notice) keeps the expiry, capped by the meeting start, rather than lapsing minutes later. A guest reschedule that puts the booking back to pending restarts it.</p>
+<ul>
+<li>Halfway to the deadline, the host gets one reminder with the Approve and Decline buttons.</li>
+<li>At the deadline the request is <strong>declined, never accepted</strong>. The guest receives an email in the language they booked in (and an SMS when the event type collects phone numbers) asking them to pick another time, with a link to the booking page when the event type is public and <code>CALRS_BASE_URL</code> is set. The host gets a short notice.</li>
+</ul>
+<p>The check runs in the same background task as reminders, once a minute.</p>
 <blockquote>
 <p><strong>Note:</strong> The email action buttons require <code>CALRS_BASE_URL</code> to be set. Without it, the host must use the dashboard.</p>
 </blockquote>
@@ -252,7 +290,7 @@
 <li>Click the “Reschedule” button in the email</li>
 <li>Pick a new time slot from the slot picker (the current booking’s slot is freed so it remains available)</li>
 <li>Confirm the new time</li>
-<li>The booking moves to <code>pending</code> status — the host must approve via email or dashboard</li>
+<li>The booking moves to <code>pending</code> status — the host must approve via email or dashboard. The request expiry starts over from the reschedule.</li>
 <li>If the booking was previously pushed to CalDAV, the event is removed (re-pushed on approval)</li>
 </ol>
 <h3 id="host-reschedule"><a class="header" href="#host-reschedule">Host reschedule</a></h3>
@@ -262,7 +300,7 @@
 <li>Pick a new time slot</li>
 <li>Confirm the new time</li>
 <li>The booking stays <code>confirmed</code> — no approval needed</li>
-<li>The CalDAV event is updated in place (same UID)</li>
+<li>The CalDAV event is updated in place (same UID). Google Meet bookings keep the existing Meet link; only the event times are patched.</li>
 <li>The guest receives a reschedule notification with the updated <code>.ics</code> invite</li>
 </ol>
 <h3 id="token-regeneration"><a class="header" href="#token-regeneration">Token regeneration</a></h3>
@@ -295,6 +333,7 @@
 <p>Additionally, a database-level unique index prevents two bookings from occupying the same slot, even if two guests submit simultaneously. On round-robin team event types the uniqueness is per assigned member, so two guests can book the same time as long as different members take the bookings.</p>
 <h2 id="caldav-write-back"><a class="header" href="#caldav-write-back">CalDAV write-back</a></h2>
 <p>When a booking is confirmed (either directly or via approval), calrs can push the event to the host’s CalDAV calendar. For team event types the host is the assigned member (round-robin), or every eligible member (collective: enabled members with a non-zero per-event-type weight, the same set the slot grid checks). See <a href="./caldav.html#caldav-write-back">CalDAV Integration &gt; Write-back</a> for setup.</p>
+<p>The event’s <code>ORGANIZER</code> is the host: the assigned member, or for a collective booking the first eligible member by name, with every member’s name joined. A collective or dynamic group booking stores that organizer when it is created and keeps it for every later update (approval, reschedule, claim, retry), even if the team changes in the meantime: Google CalDAV refuses an update that changes an existing event’s organizer. Bookings made before calrs stored it (migration 070) still resolve it from the current roster.</p>
 <h2 id="email-notifications"><a class="header" href="#email-notifications">Email notifications</a></h2>
 <p>If SMTP is configured, calrs sends emails at these moments:</p>
 <div class="table-wrapper">
@@ -315,12 +354,30 @@
 </table>
 </div>
 <p>All emails are sent as <strong>HTML with plain text fallback</strong>. They include event title, date, time, timezone, location, and notes. The HTML templates are responsive and support dark mode in email clients that honor <code>prefers-color-scheme</code>.</p>
+<h3 id="email-language"><a class="header" href="#email-language">Email language</a></h3>
+<p>Every email is written in its reader’s language, in any of the languages calrs ships:</p>
+<ul>
+<li><strong>Guests</strong> (and the additional attendees they add) get the language the booking page was shown in when they booked, whoever triggers the email. That is the guest’s browser language, unless the host chose <strong>Always my language</strong> under <strong>Public booking page language</strong> in Profile &amp; Settings: their own booking pages (<code>/u/{username}</code>, and the legacy <code>/{slug}</code> routes), and so their guests’ emails, then use the host’s own saved language. Being logged in to calrs does not change the language of a booking page: it follows the browser the booking is made from, so a staff member booking on a client’s behalf books in their own browser’s language, not their saved calrs preference. To reach a client in another language, book from a browser set to it, or send the client the booking link. The email goes out whoever triggers it: the guest themselves, the host approving, declining, cancelling or asking for a new time, the reminder task, or a calendar sync noticing the host deleted the event.</li>
+<li><strong>Hosts, team members and watchers</strong> get the language they chose in <strong>Profile &amp; Settings</strong>. With none set, they get English. On a collective team booking each member receives the host email in their own language.</li>
+<li>The guest’s cancel and reschedule pages use that same language, so they match the emails. The host’s approve and decline pages use the host’s saved language (for a collective booking, which several members can approve, the browser’s), and claim pages the watcher’s.</li>
+<li><strong>Invites</strong> follow the language of the person sending them, who also writes the optional personal message.</li>
+</ul>
+<p>The admin SMTP test email is English.</p>
+<h3 id="sender-and-replies"><a class="header" href="#sender-and-replies">Sender and replies</a></h3>
+<p>Every email leaves from the configured sender address, so SPF, DKIM and DMARC keep aligning with the instance’s domain. What changes is the name the guest sees and where their reply goes:</p>
+<ul>
+<li><strong>Guest emails</strong> (confirmation, the copies to additional attendees, pending, reminder, cancellation, decline, expired request, pick a new time, reschedule, invite) show the host’s name followed by the configured sender name, joined in the email’s language: <code>Bob Smith via Acme Scheduling</code>, or just <code>Bob Smith</code> when no sender name is set. They carry a <code>Reply-To</code> with the host’s booking email (their account email when no booking email is set), so a guest who answers the email reaches the host directly.</li>
+<li>On a round-robin booking the host is the assigned member. On a collective or dynamic group booking the name is the joined roster (<code>Alice &amp; Bob via ...</code>), and replies go to the member the calendar invite names as organizer, the same on every email of that booking even when the team changes after it was made, and whoever cancels, declines or reschedules it. Bookings made before migration 070 have no stored organizer and still resolve it from the current roster, so a team change can move theirs.</li>
+<li><strong>Invites</strong> take the <code>Reply-To</code> from the inviting user’s account email, never their booking email: the inviter picks the recipients, and the booking email is not verified.</li>
+<li><strong>Host, team member, watcher and admin emails</strong> keep the configured sender name and have no <code>Reply-To</code>.</li>
+</ul>
+<p>A host whose booking email is on a free-mail domain while the instance sends from its own domain may see some guest emails scored higher by spam filters (SpamAssassin’s <code>FREEMAIL_FORGED_REPLYTO</code>). A booking email on the organization’s domain avoids it.</p>
 <h2 id="timezone-handling"><a class="header" href="#timezone-handling">Timezone handling</a></h2>
 <ul>
 <li>Guest’s timezone is auto-detected via <code>Intl.DateTimeFormat</code> in the browser</li>
 <li>A timezone dropdown lets the guest change it</li>
 <li>Slots are displayed in the guest’s selected timezone</li>
-<li>The booking is stored in the host’s timezone</li>
+<li>New bookings use UTC storage. Legacy bookings retain their existing timezone interpretation.</li>
 <li>The timezone is preserved across navigation (week picker, booking form)</li>
 </ul>
 <h2 id="cli-booking"><a class="header" href="#cli-booking">CLI booking</a></h2>

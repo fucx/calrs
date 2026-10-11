@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b4d3d34f.js";
+            window.path_to_searchindex_js = "searchindex-79eda86f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-e4a0ca82.js"></script>
@@ -220,9 +220,8 @@ calrs source add --url https://mail.company.com/dav/ \
 <blockquote>
 <p><strong>Tip:</strong> Use app-specific passwords for Fastmail and iCloud.</p>
 </blockquote>
-<h3 id="google-calendar-is-not-currently-supported"><a class="header" href="#google-calendar-is-not-currently-supported">Google Calendar is not currently supported</a></h3>
-<p>Google dropped Basic Auth for CalDAV in 2020 and now requires OAuth2. Google “app passwords” only work for IMAP/SMTP, not CalDAV, so they will fail with <code>401 loginRequired</code> against the CalDAV endpoint. OAuth2 support for CalDAV sources is not implemented yet.</p>
-<p>If you need Google Calendar availability in calrs, a working pattern is to bridge it through a CalDAV server that can subscribe to a Google calendar (for example, Nextcloud’s calendar app), and point calrs at that server.</p>
+<h3 id="google-calendar"><a class="header" href="#google-calendar">Google Calendar</a></h3>
+<p>Google Calendar connects via OAuth2, not a username/password. See <a href="./google-calendar.html">Google Calendar</a> for Cloud project setup, scopes, and <a href="./google-calendar.html#google-meet-auto-links">Google Meet auto-links</a>.</p>
 <h2 id="auto-discovery"><a class="header" href="#auto-discovery">Auto-discovery</a></h2>
 <p>calrs follows the CalDAV standard (RFC 4791) for discovery:</p>
 <ol>
@@ -263,6 +262,23 @@ calrs sync --full
 <li>The booking tracks which calendar it was pushed to, so cancellation always targets the right calendar</li>
 <li>If no write calendar is configured, write-back is skipped and a warning is logged (emails still work)</li>
 <li>Write-back works for individual bookings, team bookings (the assigned member’s calendar for round-robin, every eligible member’s for collective), and pending-then-confirmed bookings</li>
+</ul>
+<h3 id="when-a-write-back-fails"><a class="header" href="#when-a-write-back-fails">When a write-back fails</a></h3>
+<p>After each PUT, calrs reads the event back by UID (HEAD, or PROPFIND on servers that refuse HEAD; FindItem on EWS). A write the server refused, or accepted without the event becoming readable, counts as failed.</p>
+<p>The booking stays confirmed: the slot is already blocked by calrs’s own bookings table and the guest already has the invitation, so refusing the booking after the fact would only leave the guest with an invite to a meeting that no longer exists. Instead:</p>
+<ul>
+<li>the failure is recorded on the booking, and the bookings dashboard shows a <strong>“not in your calendar”</strong> badge with the error</li>
+<li>the background task of <code>calrs serve</code> retries it, for confirmed bookings that have not started yet: 5 min, 15 min, 30 min, 1 h, 2 h, 4 h and 8 h after the previous attempt, then it stops. A retry replaces the same event (the PUT is keyed on the booking UID), so retrying never duplicates it, and a cancelled booking is never retried</li>
+<li>after three failed attempts (about 20 minutes) the host is emailed once, in their language, so they can add the event by hand. Retries carry on afterwards; a successful write clears the badge</li>
+</ul>
+<h2 id="when-a-sync-fails"><a class="header" href="#when-a-sync-fails">When a sync fails</a></h2>
+<p>If a source cannot be synced (server down, password changed, OAuth access revoked), calrs keeps offering slots from the last successful sync rather than refusing every booking. The failure is not silent:</p>
+<ul>
+<li>the calendar sources page shows the error and since when the source has been failing</li>
+<li>once a source has failed at least 3 times in a row over more than an hour, its owner is emailed once, in their language. They hear about it again only if it recovers and later fails again</li>
+<li>a calendar that fails to fetch fails the sync of its source, so “Sync complete.” means every calendar synced</li>
+<li>slot pages retry a failing source at most every five minutes, so a dead server does not slow down every page load</li>
+<li><code>calrs sync</code> lists the sources that failed and exits with status 1</li>
 </ul>
 <h2 id="managing-sources"><a class="header" href="#managing-sources">Managing sources</a></h2>
 <pre><code class="language-bash"># List all sources
