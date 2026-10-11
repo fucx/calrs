@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-79eda86f.js";
+            window.path_to_searchindex_js = "searchindex-55fc9de3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-e4a0ca82.js"></script>
@@ -2087,12 +2087,13 @@ calrs user enable &lt;EMAIL&gt;      Enable user account
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="architecture"><a class="header" href="#architecture">Architecture</a></h1>
+<p>This page gives the big picture. For a file-by-file map of the source (what each module under <code>src/web/</code> and <code>src/email/</code> owns, the key concepts and where to add a page, an email, a string or a migration), see <a href="https://github.com/olivierlambert/calrs/blob/main/ARCHITECTURE.md"><code>ARCHITECTURE.md</code></a> in the repository.</p>
 <h2 id="project-structure"><a class="header" href="#project-structure">Project structure</a></h2>
 <pre><code>calrs/
 ├── Cargo.toml              Package manifest
 ├── Dockerfile              Multi-stage Docker build
 ├── calrs.service           systemd unit file
-├── migrations/             SQLite schema (35 incremental migrations, see migrations/ dir)
+├── migrations/             SQLite schema (incremental migrations, registered in src/db.rs)
 ├── templates/              Minijinja HTML templates
 │   ├── base.html           Base layout + CSS (light/dark mode)
 │   ├── auth/               Login, registration
